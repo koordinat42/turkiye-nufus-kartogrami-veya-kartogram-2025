@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Türkiye 2025 Nüfus Kartogramı Haritası</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- D3.js CDN for Cartogram Force Simulation & Visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Google Fonts (Inter & Outfit) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        h1, h2, h3, .font-heading {
+            font-family: 'Outfit', sans-serif;
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .light .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .node-circle {
+            transition: stroke 0.2s, stroke-width 0.2s, filter 0.2s;
+            cursor: pointer;
+        }
+
+        .node-circle:hover {
+            stroke: #ffffff;
+            stroke-width: 3px;
+            filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.8));
+        }
+
+        .cartogram-tooltip {
+            pointer-events: none;
+            transition: opacity 0.15s ease-out;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.4);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.8);
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.05); }
+        }
+
+        .pulse-effect {
+            animation: pulseGlow 3s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col transition-colors duration-300">
+
+    <header class="sticky top-0 z-40 glass-panel border-b border-slate-800 px-4 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-rose-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white">
+                <i data-lucide="map-pin" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-xl lg:text-2xl font-bold tracking-tight text-white">Türkiye Nüfus Kartogramı</h1>
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">TÜİK 2025</span>
+                </div>
+                <p class="text-xs text-slate-400">81 İlin Nüfus Büyüklüğü ve Yoğunluğuna Göre Şekillendirilen Harita</p>
+            </div>
+        </div>
+
+        <!-- Quick Controls -->
+        <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <!-- Search Input -->
+            <div class="relative min-w-[180px] sm:min-w-[220px]">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input type="text" id="searchInput" placeholder="İl veya plaka ara (34, Konya...)" 
+                    class="w-full pl-9 pr-3 py-1.5 text-xs sm:text-sm bg-slate-900/80 border border-slate-700/80 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+            </div>
+
+            <!-- Compare Button -->
+            <button id="openCompareBtn" class="px-3 py-1.5 text-xs sm:text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg flex items-center gap-2 transition">
+                <i data-lucide="columns-2" class="w-4 h-4 text-indigo-400"></i>
+                <span class="hidden sm:inline">İl Karşılaştır</span>
+            </button>
+
+            <!-- Export Button -->
+            <button id="exportCsvBtn" class="px-3 py-1.5 text-xs sm:text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg flex items-center gap-2 transition">
+                <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i>
+                <span class="hidden sm:inline">CSV İndir</span>
+            </button>
+
+            <!-- Light/Dark Toggle -->
+            <button id="themeToggle" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition" title="Tema Değiştir">
+                <i data-lucide="sun" class="w-4 h-4 hidden dark:block"></i>
+                <i data-lucide="moon" class="w-4 h-4 block dark:hidden"></i>
+            </button>
+        </div>
+    </header>
+
+    <section class="px-4 lg:px-8 pt-4 pb-2 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div class="glass-panel p-3.5 rounded-xl flex flex-col justify-between border-l-4 border-l-indigo-500">
+            <div class="flex justify-between items-start text-slate-400 text-xs font-medium">
+                <span>Toplam Nüfus (2025)</span>
+                <i data-lucide="users" class="w-4 h-4 text-indigo-400"></i>
+            </div>
+            <div class="mt-2">
+                <div class="text-lg lg:text-xl font-extrabold text-white" id="statTotalPop">86.092.168</div>
+                <div class="text-[11px] text-emerald-400 mt-0.5 flex items-center gap-1">
+                    <i data-lucide="trending-up" class="w-3 h-3"></i> %0.5 Yıllık Artış (TÜİK)
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-panel p-3.5 rounded-xl flex flex-col justify-between border-l-4 border-l-rose-500">
+            <div class="flex justify-between items-start text-slate-400 text-xs font-medium">
+                <span>En Kalabalık İl</span>
+                <i data-lucide="crown" class="w-4 h-4 text-rose-400"></i>
+            </div>
+            <div class="mt-2">
+                <div class="text-lg lg:text-xl font-extrabold text-white">İstanbul (34)</div>
+                <div class="text-[11px] text-rose-300 mt-0.5">15.754.053 (%18,3 Pay)</div>
+            </div>
+        </div>
+
+        <div class="glass-panel p-3.5 rounded-xl flex flex-col justify-between border-l-4 border-l-amber-500">
+            <div class="flex justify-between items-start text-slate-400 text-xs font-medium">
+                <span>En Az Nüfuslu İl</span>
+                <i data-lucide="feather" class="w-4 h-4 text-amber-400"></i>
+            </div>
+            <div class="mt-2">
+                <div class="text-lg lg:text-xl font-extrabold text-white">Bayburt (69)</div>
+                <div class="text-[11px] text-amber-300 mt-0.5">82.836 (%0,1 Pay)</div>
+            </div>
+        </div>
+
+        <div class="glass-panel p-3.5 rounded-xl flex flex-col justify-between border-l-4 border-l-cyan-500">
+            <div class="flex justify-between items-start text-slate-400 text-xs font-medium">
+                <span>Ortalama Nüfus Yoğunluğu</span>
+                <i data-lucide="grid" class="w-4 h-4 text-cyan-400"></i>
+            </div>
+            <div class="mt-2">
+                <div class="text-lg lg:text-xl font-extrabold text-white">111 Kişi / km²</div>
+                <div class="text-[11px] text-cyan-300 mt-0.5">İstanbul: 2.948 km²</div>
+            </div>
+        </div>
+
+        <div class="glass-panel p-3.5 rounded-xl col-span-2 md:col-span-1 flex flex-col justify-between border-l-4 border-l-emerald-500">
+            <div class="flex justify-between items-start text-slate-400 text-xs font-medium">
+                <span>En Kalabalık Bölge</span>
+                <i data-lucide="map" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <div class="mt-2">
+                <div class="text-lg lg:text-xl font-extrabold text-white">Marmara</div>
+                <div class="text-[11px] text-emerald-300 mt-0.5">~26,8 Milyon (%31,1)</div>
+            </div>
+        </div>
+    </section>
+
+    <main class="flex-1 px-4 lg:px-8 py-3 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0">
+        
+        <!-- Left & Center Column: Cartogram Visualizer Controls & Map -->
+        <div class="lg:col-span-8 xl:col-span-9 flex flex-col gap-3 min-h-[550px]">
+            
+            <!-- Map Bar Controls -->
+            <div class="glass-panel p-2.5 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                
+                <!-- View Modes Toggle -->
+                <div class="flex items-center bg-slate-900/90 p-1 rounded-lg border border-slate-800 overflow-x-auto max-w-full">
+                    <button data-view="dorling" class="view-btn active px-3 py-1.5 rounded-md font-medium text-white bg-indigo-600 shadow flex items-center gap-1.5 whitespace-nowrap transition">
+                        <i data-lucide="circle-dot" class="w-3.5 h-3.5"></i> Dorling Kartogramı
+                    </button>
+                    <button data-view="geo" class="view-btn px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-white flex items-center gap-1.5 whitespace-nowrap transition">
+                        <i data-lucide="globe" class="w-3.5 h-3.5"></i> Coğrafi Konum
+                    </button>
+                    <button data-view="tile" class="view-btn px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-white flex items-center gap-1.5 whitespace-nowrap transition">
+                        <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Kare Grid
+                    </button>
+                    <button data-view="area-ratio" class="view-btn px-3 py-1.5 rounded-md font-medium text-slate-400 hover:text-white flex items-center gap-1.5 whitespace-nowrap transition">
+                        <i data-lucide="scale" class="w-3.5 h-3.5"></i> Alan vs Nüfus Oranı
+                    </button>
+                </div>
+
+                <!-- Region Filter -->
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400 hidden sm:inline">Bölge:</span>
+                    <select id="regionSelect" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                        <option value="all">Tüm Bölgeler (81 İl)</option>
+                        <option value="Marmara">Marmara Bölgesi</option>
+                        <option value="Ege">Ege Bölgesi</option>
+                        <option value="Akdeniz">Akdeniz Bölgesi</option>
+                        <option value="İç Anadolu">İç Anadolu Bölgesi</option>
+                        <option value="Karadeniz">Karadeniz Bölgesi</option>
+                        <option value="Doğu Anadolu">Doğu Anadolu Bölgesi</option>
+                        <option value="Güneydoğu Anadolu">Güneydoğu Anadolu Bölgesi</option>
+                    </select>
+                </div>
+
+                <!-- Color Metric Select -->
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400 hidden sm:inline">Renk Ölçütü:</span>
+                    <select id="metricSelect" class="bg-slate-900/90 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                        <option value="population">Toplam Nüfus</option>
+                        <option value="density">Nüfus Yoğunluğu (Kişi/km²)</option>
+                        <option value="region">Coğrafi Bölgeye Göre</option>
+                        <option value="gender">Erkek / Kadın Dengesi</option>
+                    </select>
+                </div>
+
+                <!-- Map Action Controls -->
+                <div class="flex items-center gap-1">
+                    <button id="togglePhysicsBtn" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700" title="Fizik Simülasyonunu Durdur/Başlat">
+                        <i data-lucide="pause" class="w-4 h-4"></i>
+                    </button>
+                    <button id="resetZoomBtn" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700" title="Görünümü Sıfırla">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- Cartogram Map Canvas Window -->
+            <div class="relative flex-1 glass-panel rounded-2xl overflow-hidden border border-slate-800/80 flex items-center justify-center min-h-[480px]">
+                
+                <!-- Map Header Overlay Legend -->
+                <div class="absolute top-4 left-4 z-10 glass-panel px-3 py-2 rounded-xl border border-slate-700/60 max-w-[260px] text-xs">
+                    <div id="legendTitle" class="font-semibold text-slate-200 mb-1.5 flex items-center justify-between">
+                        <span>Nüfus Ölçeği</span>
+                        <span id="legendSub" class="text-[10px] text-indigo-400 font-mono">Daire Alanı ∝ Nüfus</span>
+                    </div>
+                    <div id="legendGradientContainer" class="w-full">
+                        <div id="legendGradient" class="h-2.5 rounded-full w-full bg-gradient-to-r from-indigo-900 via-indigo-500 to-rose-500"></div>
+                        <div class="flex justify-between text-[10px] text-slate-400 mt-1 font-mono" id="legendLabels">
+                            <span>82.8K</span>
+                            <span>2.5M</span>
+                            <span>15.7M</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interaction Hint -->
+                <div class="absolute bottom-4 left-4 z-10 glass-panel px-3 py-1.5 rounded-lg border border-slate-700/60 text-[11px] text-slate-400 flex items-center gap-2 pointer-events-none">
+                    <i data-lucide="hand" class="w-3.5 h-3.5 text-indigo-400 animate-bounce"></i>
+                    <span>İlleri sürükleyebilir, üzerlerine tıklayarak detayları inceleyebilirsiniz.</span>
+                </div>
+
+                <!-- SVG Container -->
+                <svg id="cartogramSvg" class="w-full h-full cursor-grab active:cursor-grabbing select-none" viewBox="0 0 1000 560">
+                    <defs>
+                        <!-- Glow filter -->
+                        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="4" result="blur" />
+                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
+                    </defs>
+                    <g id="mapGroup"></g>
+                </svg>
+
+                <!-- Floating Tooltip -->
+                <div id="tooltip" class="cartogram-tooltip absolute z-30 opacity-0 glass-panel p-3 rounded-xl border border-indigo-500/30 shadow-2xl pointer-events-none min-w-[200px] text-xs">
+                    <!-- Dynamic Tooltip content -->
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Column: Selected Province Details & Insights -->
+        <div class="lg:col-span-4 xl:col-span-3 flex flex-col gap-4">
+            
+            <!-- Selected Province Card -->
+            <div class="glass-panel p-5 rounded-2xl border border-indigo-500/20 relative overflow-hidden flex flex-col justify-between" id="provinceDetailCard">
+                <!-- Decorative background glow -->
+                <div class="absolute -right-10 -top-10 w-32 h-32 bg-indigo-600/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div>
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                        <div class="flex items-center gap-3">
+                            <span id="detailPlate" class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 font-extrabold text-white text-lg flex items-center justify-center shadow-lg shadow-indigo-500/30 font-mono">34</span>
+                            <div>
+                                <h2 id="detailName" class="text-xl font-bold text-white tracking-tight">İstanbul</h2>
+                                <span id="detailRegion" class="text-xs font-medium text-indigo-400">Marmara Bölgesi</span>
+                            </div>
+                        </div>
+                        <span id="detailRank" class="px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 font-bold text-xs border border-indigo-500/20">Sıra #1</span>
+                    </div>
+
+                    <!-- Main Stats Grid -->
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <div class="text-[11px] text-slate-400">2025 Nüfusu</div>
+                            <div id="detailPop" class="text-base font-bold text-white mt-0.5">15.754.053</div>
+                            <div id="detailShare" class="text-[10px] text-indigo-400 mt-0.5">Türkiye'nin %18.30'u</div>
+                        </div>
+
+                        <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <div class="text-[11px] text-slate-400">Nüfus Yoğunluğu</div>
+                            <div id="detailDensity" class="text-base font-bold text-amber-400 mt-0.5">2.948 / km²</div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">Kişi / Yüzölçümü</div>
+                        </div>
+
+                        <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <div class="text-[11px] text-slate-400">Fiziksel Alan</div>
+                            <div id="detailArea" class="text-sm font-semibold text-slate-200 mt-0.5">5.343 km²</div>
+                            <div id="detailAreaShare" class="text-[10px] text-slate-500 mt-0.5">Türkiye'nin %0.68'i</div>
+                        </div>
+
+                        <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <div class="text-[11px] text-slate-400">Erkek / Kadın</div>
+                            <div id="detailGenderRatio" class="text-sm font-semibold text-slate-200 mt-0.5">%49.8 / %50.2</div>
+                            <div class="text-[10px] text-slate-500 mt-0.5">ADNKS 2025</div>
+                        </div>
+                    </div>
+
+                    <!-- Gender Ratio Bar -->
+                    <div class="mb-4">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span class="flex items-center gap-1 text-sky-400"><i data-lucide="user" class="w-3 h-3"></i> Erkek: <b id="detailMaleCount" class="text-white">7.851.344</b></span>
+                            <span class="flex items-center gap-1 text-rose-400"><i data-lucide="user" class="w-3 h-3"></i> Kadın: <b id="detailFemaleCount" class="text-white">7.902.709</b></span>
+                        </div>
+                        <div class="h-2 rounded-full bg-slate-800 overflow-hidden flex">
+                            <div id="detailMaleBar" class="bg-sky-500 h-full transition-all duration-500" style="width: 49.8%"></div>
+                            <div id="detailFemaleBar" class="bg-rose-500 h-full transition-all duration-500" style="width: 50.2%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Insight Box -->
+                    <div class="bg-indigo-950/40 p-3 rounded-xl border border-indigo-500/20 text-xs leading-relaxed text-indigo-200">
+                        <div class="font-semibold text-indigo-300 flex items-center gap-1.5 mb-1">
+                            <i data-lucide="lightbulb" class="w-4 h-4 text-amber-400"></i> Kartogram Analiz Notu
+                        </div>
+                        <p id="detailInsight">
+                            İstanbul, alan olarak Türkiye'nin yalnızca %0,68'ini kaplamasına rağmen nüfusun %18,3'üne ev sahipliği yapar. Kartogram haritasında gerçek boyutunun tam 27 katı büyüklükte görünür!
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Action button -->
+                <button id="compareSelectedBtn" class="mt-4 w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+                    <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i> Başka Bir İl İle Karşılaştır
+                </button>
+            </div>
+
+            <!-- Quick Regional Overview Widget -->
+            <div class="glass-panel p-4 rounded-2xl border border-slate-800">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+                    <span>Bölgesel Nüfus Payları</span>
+                    <i data-lucide="pie-chart" class="w-4 h-4 text-indigo-400"></i>
+                </h3>
+                <div id="regionalList" class="space-y-2 text-xs">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <section class="px-4 lg:px-8 py-6 space-y-6">
+        
+        <!-- Table & Search Header -->
+        <div class="glass-panel p-5 rounded-2xl border border-slate-800">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i data-lucide="table" class="w-5 h-5 text-indigo-400"></i> Türkiye 81 İl Nüfus Veri Tablosu (2025)
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Sütun başlıklarına tıklayarak sıralayabilir, arama kutusu ile filtreleyebilirsiniz.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="tableCountBadge" class="text-xs font-medium text-indigo-300 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">81 İl Listeleniyor</span>
+                </div>
+            </div>
+
+            <!-- Filterable Table -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/90 text-slate-400 uppercase font-semibold font-mono border-b border-slate-800">
+                        <tr>
+                            <th class="p-3 cursor-pointer hover:text-white transition" data-sort="rank">Sıra ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition" data-sort="plate">Plaka ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition" data-sort="name">İl Adı ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition" data-sort="region">Bölge ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition text-right" data-sort="population">2025 Nüfusu ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition text-right" data-sort="share">Türkiye Payı (%) ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition text-right" data-sort="area">Alan (km²) ⇕</th>
+                            <th class="p-3 cursor-pointer hover:text-white transition text-right" data-sort="density">Yoğunluk (Kişi/km²) ⇕</th>
+                            <th class="p-3 text-center">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="provinceTableBody" class="divide-y divide-slate-800/60 bg-slate-950/40 font-medium">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Educational Info Box -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="glass-panel p-4 rounded-xl border border-slate-800">
+                <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
+                    <i data-lucide="help-circle" class="w-5 h-5"></i>
+                </div>
+                <h3 class="font-bold text-sm text-white mb-1">Kartogram Harita Nedir?</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    Kartogram (Dorling Cartogram), coğrafi sınırları alan büyüklüğüne göre değil, incelenen değişkenin (bu haritada TÜİK 2025 il nüfusları) büyüklüğüne göre deforme ederek görselleştiren tematik haritadır.
+                </p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-xl border border-slate-800">
+                <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center mb-3">
+                    <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
+                </div>
+                <h3 class="font-bold text-sm text-white mb-1">Esenyurt Örneği & Yoğunluk</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    İstanbul'un Esenyurt ilçesi 1.05 Milyon nüfusu ile tek başına Türkiye'deki 57 ilin her birinden daha kalabalıktır! İstanbul'un nüfus yoğunluğu kilometrekareye 2.948 kişidir.
+                </p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-xl border border-slate-800">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-3">
+                    <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                </div>
+                <h3 class="font-bold text-sm text-white mb-1">Resmi Veri Kaynağı</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    Tüm il nüfusu, yüzölçümü ve cinsiyet dağılım verileri TÜİK (Türkiye İstatistik Kurumu) Adrese Dayalı Nüfus Kayıt Sistemi (ADNKS) 2025 resmi sonuçlarına dayanmaktadır.
+                </p>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- Footer -->
+    <footer class="mt-auto border-t border-slate-800 py-4 px-4 text-center text-xs text-slate-500">
+        <p>© 2025 Türkiye Nüfus Kartogramı Haritası - TÜİK ADNKS Verileri ile Hazırlanmıştır.</p>
+    </footer>
+
+    <div id="compareModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-3xl rounded-2xl border border-slate-700 shadow-2xl p-6 relative flex flex-col max-h-[90vh]">
+            <button id="closeCompareModal" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <h2 class="text-lg font-bold text-white flex items-center gap-2 mb-4">
+                <i data-lucide="columns-2" class="w-5 h-5 text-indigo-400"></i> İki İli Karşılaştır
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- Province A selector -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">1. İl Seçin</label>
+                    <select id="compareSelectA" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                        <!-- Populated -->
+                    </select>
+                </div>
+
+                <!-- Province B selector -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">2. İl Seçin</label>
+                    <select id="compareSelectB" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                        <!-- Populated -->
+                    </select>
+                </div>
+            </div>
+
+            <!-- Comparison Grid Results -->
+            <div id="compareResults" class="space-y-4 overflow-y-auto pr-1">
+                <!-- Dynamic comparison bars -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const TURKEY_TOTAL_POP = 86092168;
+
+        // Official TÜİK 2025 Data for all 81 Provinces of Turkey
+        const provincesData = [
+            { plate: 1, name: "Adana", pop: 2283609, area: 13844, region: "Akdeniz", lat: 37.0, lng: 35.32, maleRatio: 0.500, gridCol: 5, gridRow: 5.5 },
+            { plate: 2, name: "Adıyaman", pop: 617821, area: 7614, region: "Güneydoğu Anadolu", lat: 37.76, lng: 38.27, maleRatio: 0.506, gridCol: 7, gridRow: 5 },
+            { plate: 3, name: "Afyonkarahisar", pop: 751808, area: 14016, region: "Ege", lat: 38.75, lng: 30.54, maleRatio: 0.501, gridCol: 2, gridRow: 3 },
+            { plate: 4, name: "Ağrı", pop: 491489, area: 11099, region: "Doğu Anadolu", lat: 39.72, lng: 43.05, maleRatio: 0.517, gridCol: 13, gridRow: 3 },
+            { plate: 5, name: "Amasya", pop: 342242, area: 5628, region: "Karadeniz", lat: 40.65, lng: 35.83, maleRatio: 0.502, gridCol: 7, gridRow: 2 },
+            { plate: 6, name: "Ankara", pop: 5910320, area: 25632, region: "İç Anadolu", lat: 39.93, lng: 32.85, maleRatio: 0.492, gridCol: 4, gridRow: 2 },
+            { plate: 7, name: "Antalya", pop: 2777677, area: 20177, region: "Akdeniz", lat: 36.88, lng: 30.70, maleRatio: 0.503, gridCol: 2, gridRow: 5 },
+            { plate: 8, name: "Artvin", pop: 169280, area: 7393, region: "Karadeniz", lat: 41.18, lng: 41.82, maleRatio: 0.504, gridCol: 15, gridRow: 0 },
+            { plate: 9, name: "Aydın", pop: 1172107, area: 8116, region: "Ege", lat: 37.84, lng: 27.84, maleRatio: 0.495, gridCol: 0, gridRow: 4 },
+            { plate: 10, name: "Balıkesir", pop: 1284517, area: 14583, region: "Marmara", lat: 39.64, lng: 27.88, maleRatio: 0.497, gridCol: 1, gridRow: 2 },
+            { plate: 11, name: "Bilecik", pop: 228995, area: 4177, region: "Marmara", lat: 40.14, lng: 29.97, maleRatio: 0.521, gridCol: 3, gridRow: 1 },
+            { plate: 12, name: "Bingöl", pop: 282299, area: 8078, region: "Doğu Anadolu", lat: 38.88, lng: 40.49, maleRatio: 0.502, gridCol: 9, gridRow: 4 },
+            { plate: 13, name: "Bitlis", pop: 360423, area: 8294, region: "Doğu Anadolu", lat: 38.40, lng: 42.10, maleRatio: 0.517, gridCol: 11, gridRow: 4 },
+            { plate: 14, name: "Bolu", pop: 327173, area: 8313, region: "Karadeniz", lat: 40.73, lng: 31.60, maleRatio: 0.498, gridCol: 5, gridRow: 1 },
+            { plate: 15, name: "Burdur", pop: 277226, area: 6887, region: "Akdeniz", lat: 37.72, lng: 30.28, maleRatio: 0.503, gridCol: 2, gridRow: 4 },
+            { plate: 16, name: "Bursa", pop: 3263011, area: 10813, region: "Marmara", lat: 40.18, lng: 29.06, maleRatio: 0.499, gridCol: 2, gridRow: 1 },
+            { plate: 17, name: "Çanakkale", pop: 573976, area: 9817, region: "Marmara", lat: 40.15, lng: 26.40, maleRatio: 0.495, gridCol: 0, gridRow: 1 },
+            { plate: 18, name: "Çankırı", pop: 199981, area: 7542, region: "İç Anadolu", lat: 40.60, lng: 33.61, maleRatio: 0.501, gridCol: 5, gridRow: 2 },
+            { plate: 19, name: "Çorum", pop: 519590, area: 12428, region: "Karadeniz", lat: 40.55, lng: 34.95, maleRatio: 0.496, gridCol: 6, gridRow: 1 },
+            { plate: 20, name: "Denizli", pop: 1060975, area: 12134, region: "Ege", lat: 37.77, lng: 29.08, maleRatio: 0.496, gridCol: 1, gridRow: 4 },
+            { plate: 21, name: "Diyarbakır", pop: 1852356, area: 15168, region: "Güneydoğu Anadolu", lat: 37.91, lng: 40.23, maleRatio: 0.505, gridCol: 9, gridRow: 5 },
+            { plate: 22, name: "Edirne", pop: 422438, area: 6279, region: "Marmara", lat: 41.67, lng: 26.55, maleRatio: 0.502, gridCol: 0, gridRow: 0 },
+            { plate: 23, name: "Elazığ", pop: 605678, area: 9383, region: "Doğu Anadolu", lat: 38.68, lng: 39.22, maleRatio: 0.494, gridCol: 8, gridRow: 4 },
+            { plate: 24, name: "Erzincan", pop: 239625, area: 11815, region: "Doğu Anadolu", lat: 39.75, lng: 39.49, maleRatio: 0.508, gridCol: 9, gridRow: 3 },
+            { plate: 25, name: "Erzurum", pop: 736877, area: 25006, region: "Doğu Anadolu", lat: 39.90, lng: 41.27, maleRatio: 0.498, gridCol: 11, gridRow: 2 },
+            { plate: 26, name: "Eskişehir", pop: 927956, area: 13960, region: "İç Anadolu", lat: 39.77, lng: 30.52, maleRatio: 0.497, gridCol: 3, gridRow: 2 },
+            { plate: 27, name: "Gaziantep", pop: 2222415, area: 6803, region: "Güneydoğu Anadolu", lat: 37.06, lng: 37.38, maleRatio: 0.503, gridCol: 7, gridRow: 6 },
+            { plate: 28, name: "Giresun", pop: 455074, area: 6950, region: "Karadeniz", lat: 40.91, lng: 38.38, maleRatio: 0.499, gridCol: 12, gridRow: 0 },
+            { plate: 29, name: "Gümüşhane", pop: 138807, area: 6668, region: "Karadeniz", lat: 40.46, lng: 39.47, maleRatio: 0.506, gridCol: 9, gridRow: 2 },
+            { plate: 30, name: "Hakkari", pop: 279681, area: 7095, region: "Doğu Anadolu", lat: 37.58, lng: 43.73, maleRatio: 0.522, gridCol: 12, gridRow: 6 },
+            { plate: 31, name: "Hatay", pop: 1577531, area: 5524, region: "Akdeniz", lat: 36.20, lng: 36.16, maleRatio: 0.505, gridCol: 5, gridRow: 7 },
+            { plate: 32, name: "Isparta", pop: 445303, area: 8946, region: "Akdeniz", lat: 37.76, lng: 30.55, maleRatio: 0.493, gridCol: 2, gridRow: 3.5 },
+            { plate: 33, name: "Mersin", pop: 1956428, area: 16010, region: "Akdeniz", lat: 36.80, lng: 34.64, maleRatio: 0.499, gridCol: 4, gridRow: 6 },
+            { plate: 34, name: "İstanbul", pop: 15754053, area: 5343, region: "Marmara", lat: 41.00, lng: 28.97, maleRatio: 0.498, gridCol: 2, gridRow: 0 },
+            { plate: 35, name: "İzmir", pop: 4504185, area: 11891, region: "Ege", lat: 38.42, lng: 27.14, maleRatio: 0.494, gridCol: 0, gridRow: 3 },
+            { plate: 36, name: "Kars", pop: 268991, area: 10193, region: "Doğu Anadolu", lat: 40.60, lng: 43.09, maleRatio: 0.514, gridCol: 13, gridRow: 2 },
+            { plate: 37, name: "Kastamonu", pop: 379934, area: 13064, region: "Karadeniz", lat: 41.38, lng: 33.78, maleRatio: 0.495, gridCol: 8, gridRow: 0 },
+            { plate: 38, name: "Kayseri", pop: 1458991, area: 16970, region: "İç Anadolu", lat: 38.73, lng: 35.48, maleRatio: 0.499, gridCol: 6, gridRow: 4 },
+            { plate: 39, name: "Kırklareli", pop: 379595, area: 6459, region: "Marmara", lat: 41.73, lng: 27.22, maleRatio: 0.505, gridCol: 1, gridRow: 0 },
+            { plate: 40, name: "Kırşehir", pop: 242777, area: 6584, region: "İç Anadolu", lat: 39.14, lng: 34.16, maleRatio: 0.497, gridCol: 5, gridRow: 4 },
+            { plate: 41, name: "Kocaeli", pop: 2161171, area: 3397, region: "Marmara", lat: 40.76, lng: 29.91, maleRatio: 0.503, gridCol: 3, gridRow: 0 },
+            { plate: 42, name: "Konya", pop: 2343409, area: 38873, region: "İç Anadolu", lat: 37.87, lng: 32.48, maleRatio: 0.496, gridCol: 3, gridRow: 4 },
+            { plate: 43, name: "Kütahya", pop: 570478, area: 11634, region: "Ege", lat: 39.41, lng: 29.98, maleRatio: 0.493, gridCol: 2, gridRow: 2 },
+            { plate: 44, name: "Malatya", pop: 755854, area: 12259, region: "Doğu Anadolu", lat: 38.35, lng: 38.30, maleRatio: 0.501, gridCol: 7, gridRow: 4 },
+            { plate: 45, name: "Manisa", pop: 1477756, area: 13339, region: "Ege", lat: 38.61, lng: 27.42, maleRatio: 0.501, gridCol: 1, gridRow: 3 },
+            { plate: 46, name: "Kahramanmaraş", pop: 1146278, area: 14520, region: "Akdeniz", lat: 37.58, lng: 36.93, maleRatio: 0.509, gridCol: 6, gridRow: 5 },
+            { plate: 47, name: "Mardin", pop: 903576, area: 8780, region: "Güneydoğu Anadolu", lat: 37.32, lng: 40.74, maleRatio: 0.502, gridCol: 9, gridRow: 6 },
+            { plate: 48, name: "Muğla", pop: 1099547, area: 12654, region: "Ege", lat: 37.21, lng: 28.36, maleRatio: 0.508, gridCol: 1, gridRow: 5 },
+            { plate: 49, name: "Muş", pop: 389127, area: 8650, region: "Doğu Anadolu", lat: 38.74, lng: 41.49, maleRatio: 0.507, gridCol: 10, gridRow: 4 },
+            { plate: 50, name: "Nevşehir", pop: 320150, area: 5485, region: "İç Anadolu", lat: 38.62, lng: 34.71, maleRatio: 0.493, gridCol: 5, gridRow: 4.5 },
+            { plate: 51, name: "Niğde", pop: 374492, area: 7235, region: "İç Anadolu", lat: 37.96, lng: 34.68, maleRatio: 0.500, gridCol: 4, gridRow: 5 },
+            { plate: 52, name: "Ordu", pop: 768087, area: 5861, region: "Karadeniz", lat: 40.98, lng: 37.87, maleRatio: 0.498, gridCol: 11, gridRow: 0 },
+            { plate: 53, name: "Rize", pop: 346947, area: 3835, region: "Karadeniz", lat: 41.02, lng: 40.52, maleRatio: 0.500, gridCol: 14, gridRow: 0 },
+            { plate: 54, name: "Sakarya", pop: 1123693, area: 4821, region: "Marmara", lat: 40.75, lng: 30.38, maleRatio: 0.501, gridCol: 4, gridRow: 0 },
+            { plate: 55, name: "Samsun", pop: 1392403, area: 9725, region: "Karadeniz", lat: 41.29, lng: 36.33, maleRatio: 0.495, gridCol: 10, gridRow: 0 },
+            { plate: 56, name: "Siirt", pop: 332369, area: 5717, region: "Güneydoğu Anadolu", lat: 37.93, lng: 41.94, maleRatio: 0.508, gridCol: 10, gridRow: 5.5 },
+            { plate: 57, name: "Sinop", pop: 226957, area: 5717, region: "Karadeniz", lat: 42.02, lng: 35.15, maleRatio: 0.495, gridCol: 9, gridRow: 0 },
+            { plate: 58, name: "Sivas", pop: 631401, area: 28164, region: "İç Anadolu", lat: 39.74, lng: 37.01, maleRatio: 0.499, gridCol: 8, gridRow: 3 },
+            { plate: 59, name: "Tekirdağ", pop: 1208441, area: 6218, region: "Marmara", lat: 40.98, lng: 27.51, maleRatio: 0.509, gridCol: 1, gridRow: 1 },
+            { plate: 60, name: "Tokat", pop: 614141, area: 10042, region: "Karadeniz", lat: 40.31, lng: 36.55, maleRatio: 0.497, gridCol: 8, gridRow: 2 },
+            { plate: 61, name: "Trabzon", pop: 823323, area: 4662, region: "Karadeniz", lat: 41.00, lng: 39.71, maleRatio: 0.496, gridCol: 13, gridRow: 0 },
+            { plate: 62, name: "Tunceli", pop: 85083, area: 7582, region: "Doğu Anadolu", lat: 39.10, lng: 39.54, maleRatio: 0.530, gridCol: 8, gridRow: 3.5 },
+            { plate: 63, name: "Şanlıurfa", pop: 2265800, area: 18584, region: "Güneydoğu Anadolu", lat: 37.16, lng: 38.79, maleRatio: 0.504, gridCol: 8, gridRow: 6 },
+            { plate: 64, name: "Uşak", pop: 374405, area: 5555, region: "Ege", lat: 38.68, lng: 29.40, maleRatio: 0.495, gridCol: 1, gridRow: 3.5 },
+            { plate: 65, name: "Van", pop: 1112013, area: 20921, region: "Doğu Anadolu", lat: 38.50, lng: 43.37, maleRatio: 0.509, gridCol: 12, gridRow: 4 },
+            { plate: 66, name: "Yozgat", pop: 413208, area: 13690, region: "İç Anadolu", lat: 39.81, lng: 34.81, maleRatio: 0.504, gridCol: 6, gridRow: 2 },
+            { plate: 67, name: "Zonguldak", pop: 585203, area: 3342, region: "Karadeniz", lat: 41.45, lng: 31.79, maleRatio: 0.495, gridCol: 6, gridRow: 0 },
+            { plate: 68, name: "Aksaray", pop: 441136, area: 7659, region: "İç Anadolu", lat: 38.36, lng: 34.03, maleRatio: 0.499, gridCol: 4, gridRow: 4 },
+            { plate: 69, name: "Bayburt", pop: 82836, area: 3746, region: "Karadeniz", lat: 40.25, lng: 40.22, maleRatio: 0.508, gridCol: 10, gridRow: 2 },
+            { plate: 70, name: "Karaman", pop: 262355, area: 8678, region: "İç Anadolu", lat: 37.17, lng: 33.22, maleRatio: 0.498, gridCol: 3, gridRow: 5 },
+            { plate: 71, name: "Kırıkkale", pop: 282830, area: 4365, region: "İç Anadolu", lat: 39.84, lng: 33.51, maleRatio: 0.502, gridCol: 5, gridRow: 3 },
+            { plate: 72, name: "Batman", pop: 662626, area: 4477, region: "Güneydoğu Anadolu", lat: 37.88, lng: 41.12, maleRatio: 0.506, gridCol: 10, gridRow: 5 },
+            { plate: 73, name: "Şırnak", pop: 573666, area: 7078, region: "Güneydoğu Anadolu", lat: 37.51, lng: 42.45, maleRatio: 0.517, gridCol: 11, gridRow: 6 },
+            { plate: 74, name: "Bartın", pop: 206715, area: 2330, region: "Karadeniz", lat: 41.63, lng: 32.33, maleRatio: 0.494, gridCol: 7, gridRow: 0 },
+            { plate: 75, name: "Ardahan", pop: 90392, area: 4937, region: "Doğu Anadolu", lat: 41.11, lng: 42.70, maleRatio: 0.524, gridCol: 13, gridRow: 1 },
+            { plate: 76, name: "Iğdır", pop: 206857, area: 3664, region: "Doğu Anadolu", lat: 39.91, lng: 44.04, maleRatio: 0.518, gridCol: 14, gridRow: 2 },
+            { plate: 77, name: "Yalova", pop: 311635, area: 798, region: "Marmara", lat: 40.65, lng: 29.27, maleRatio: 0.499, gridCol: 2, gridRow: 0.5 },
+            { plate: 78, name: "Karabük", pop: 249614, area: 3364, region: "Karadeniz", lat: 41.20, lng: 32.62, maleRatio: 0.504, gridCol: 7, gridRow: 1 },
+            { plate: 79, name: "Kilis", pop: 157363, area: 1412, region: "Güneydoğu Anadolu", lat: 36.71, lng: 37.11, maleRatio: 0.508, gridCol: 7, gridRow: 7 },
+            { plate: 80, name: "Osmaniye", pop: 564123, area: 3215, region: "Akdeniz", lat: 37.07, lng: 36.24, maleRatio: 0.503, gridCol: 6, gridRow: 5.5 },
+            { plate: 81, name: "Düzce", pop: 415622, area: 2492, region: "Karadeniz", lat: 40.84, lng: 31.16, maleRatio: 0.499, gridCol: 5, gridRow: 0 }
+        ];
+
+        // Calculate density and rank
+        provincesData.forEach(p => {
+            p.density = Math.round(p.pop / p.area);
+            p.share = ((p.pop / TURKEY_TOTAL_POP) * 100).toFixed(2);
+            p.areaShare = ((p.area / 783562) * 100).toFixed(2); // Turkey total land ~783,562 km²
+        });
+
+        // Sort by population to assign rank
+        const sortedByPop = [...provincesData].sort((a, b) => b.pop - a.pop);
+        sortedByPop.forEach((p, index) => {
+            p.rank = index + 1;
+        });
+
+        // Color palettes for regions
+        const regionColors = {
+            "Marmara": "#6366f1",         // Indigo
+            "Ege": "#06b6d4",             // Cyan
+            "Akdeniz": "#f43f5e",          // Rose
+            "İç Anadolu": "#f59e0b",       // Amber
+            "Karadeniz": "#10b981",        // Emerald
+            "Doğu Anadolu": "#a855f7",     // Purple
+            "Güneydoğu Anadolu": "#ec4899" // Pink
+        };
+
+        // State variables
+        let currentViewMode = "dorling"; // 'dorling', 'geo', 'tile', 'area-ratio'
+        let currentMetric = "population"; // 'population', 'density', 'region', 'gender'
+        let selectedRegion = "all";
+        let searchQuery = "";
+        let selectedProvince = provincesData.find(p => p.plate === 34); // Default Istanbul
+        let isSimulationRunning = true;
+
+        const svg = d3.select("#cartogramSvg");
+        const mapGroup = d3.select("#mapGroup");
+        const tooltip = d3.select("#tooltip");
+
+        const svgWidth = 1000;
+        const svgHeight = 560;
+
+        // Projection mapping helper for Turkey (Lat/Lng -> Canvas X/Y)
+        // Turkey Lng range: 26 to 45 -> X: 60 to 940
+        // Turkey Lat range: 36 to 42 -> Y: 500 to 60
+        function projectGeo(lng, lat) {
+            const x = ((lng - 25.5) / (45.0 - 25.5)) * 880 + 60;
+            const y = ((42.2 - lat) / (42.2 - 35.5)) * 440 + 60;
+            return { x, y };
+        }
+
+        // Grid Cartogram helper (Col/Row -> Canvas X/Y)
+        function projectGrid(col, row) {
+            const x = col * 56 + 70;
+            const y = row * 60 + 70;
+            return { x, y };
+        }
+
+        // Color scale generators
+        const maxPop = d3.max(provincesData, d => d.pop);
+        const minPop = d3.min(provincesData, d => d.pop);
+        const maxDensity = d3.max(provincesData, d => d.density);
+
+        const popColorScale = d3.scaleSequential()
+            .domain([Math.sqrt(minPop), Math.sqrt(maxPop)])
+            .interpolator(d3.interpolateCividis); // High contrast theme interpolator
+
+        const popCustomColorScale = d3.scaleLog()
+            .domain([minPop, 1000000, maxPop])
+            .range(["#312e81", "#6366f1", "#f43f5e"]);
+
+        const densityColorScale = d3.scaleLog()
+            .domain([12, 100, maxDensity])
+            .range(["#0284c7", "#f59e0b", "#ef4444"]);
+
+        function getNodeColor(d) {
+            if (currentMetric === "population") {
+                return popCustomColorScale(d.pop);
+            } else if (currentMetric === "density") {
+                return densityColorScale(d.density);
+            } else if (currentMetric === "region") {
+                return regionColors[d.region] || "#6366f1";
+            } else if (currentMetric === "gender") {
+                // Male ratio scale
+                return d.maleRatio > 0.51 ? "#0284c7" : d.maleRatio < 0.498 ? "#ec4899" : "#8b5cf6";
+            }
+            return "#6366f1";
+        }
+
+        // Radius scaling for Dorling Cartogram
+        // Area proportional to population: r = sqrt(pop / maxPop) * maxRadius
+        function getRadius(pop, view) {
+            if (view === "geo") {
+                return 12; // Fixed uniform size in geographic map mode
+            }
+            if (view === "tile") {
+                return 22; // Hex/Square tile radius
+            }
+            if (view === "area-ratio") {
+                // Radius proportional to land area
+                return 6 + Math.sqrt(pop / maxPop) * 55;
+            }
+            // Dorling cartogram radius: sqrt proportional
+            const minR = 7;
+            const maxR = 64;
+            return minR + Math.sqrt(pop / maxPop) * (maxR - minR);
+        }
+
+        // Prepare nodes for D3 simulation
+        const nodes = provincesData.map(d => {
+            const geoPos = projectGeo(d.lng, d.lat);
+            const gridPos = projectGrid(d.gridCol, d.gridRow);
+            const r = getRadius(d.pop, "dorling");
+            return {
+                ...d,
+                x: geoPos.x,
+                y: geoPos.y,
+                geoX: geoPos.x,
+                geoY: geoPos.y,
+                gridX: gridPos.x,
+                gridY: gridPos.y,
+                r: r,
+                targetR: r
+            };
+        });
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("cx", d3.forceX(d => d.targetX || d.geoX).strength(0.22))
+            .force("cy", d3.forceY(d => d.targetY || d.geoY).strength(0.22))
+            .force("collide", d3.forceCollide(d => d.targetR + 2.5).iterations(4))
+            .alphaDecay(0.025)
+            .on("tick", ticked);
+
+        // Zoom Behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.7, 4])
+            .on("zoom", (event) => {
+                mapGroup.attr("transform", event.transform);
+            });
+
+        svg.call(zoom);
+
+        // Create SVG element groups
+        let nodeElements = mapGroup.append("g")
+            .selectAll("g")
+            .data(nodes)
+            .enter()
+            .append("g")
+            .attr("class", "node-group cursor-pointer")
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended))
+            .on("click", (event, d) => {
+                selectProvince(d);
+            })
+            .on("mouseover", showTooltip)
+            .on("mousemove", moveTooltip)
+            .on("mouseout", hideTooltip);
+
+        // Outer Glow Circle
+        nodeElements.append("circle")
+            .attr("class", "node-glow")
+            .attr("r", d => d.targetR + 4)
+            .attr("fill", "none")
+            .attr("stroke", d => getNodeColor(d))
+            .attr("stroke-opacity", 0.3)
+            .attr("stroke-width", 2);
+
+        // Main Filled Circle
+        nodeElements.append("circle")
+            .attr("class", "node-circle")
+            .attr("r", d => d.targetR)
+            .attr("fill", d => getNodeColor(d))
+            .attr("fill-opacity", 0.85)
+            .attr("stroke", "#ffffff")
+            .attr("stroke-opacity", 0.2)
+            .attr("stroke-width", 1.5);
+
+        // Text Labels (Plate & Name for larger circles)
+        nodeElements.append("text")
+            .attr("class", "node-text-plate font-mono font-bold select-none")
+            .attr("text-anchor", "middle")
+            .attr("dy", "-0.1em")
+            .attr("fill", "#ffffff")
+            .attr("font-size", d => Math.max(9, Math.min(16, d.targetR * 0.45)) + "px")
+            .text(d => d.plate);
+
+        nodeElements.append("text")
+            .attr("class", "node-text-name font-semibold select-none")
+            .attr("text-anchor", "middle")
+            .attr("dy", "1.1em")
+            .attr("fill", "rgba(255, 255, 255, 0.9)")
+            .attr("font-size", d => Math.max(7, Math.min(11, d.targetR * 0.3)) + "px")
+            .text(d => d.targetR > 18 ? d.name : "");
+
+        function ticked() {
+            nodeElements.attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        function dragstarted(event, d) {
+            if (!event.active && isSimulationRunning) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active && isSimulationRunning) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        function updateVisualization() {
+            // Filter checking
+            nodes.forEach(d => {
+                const matchesRegion = (selectedRegion === "all" || d.region === selectedRegion);
+                const matchesSearch = (searchQuery === "" || 
+                    d.name.toLowerCase().includes(searchQuery) || 
+                    d.plate.toString() === searchQuery);
+                d.visible = matchesRegion && matchesSearch;
+            });
+
+            // Target positions and radius per mode
+            nodes.forEach(d => {
+                d.targetR = getRadius(d.pop, currentViewMode);
+                
+                if (currentViewMode === "dorling") {
+                    d.targetX = d.geoX;
+                    d.targetY = d.geoY;
+                } else if (currentViewMode === "geo") {
+                    d.targetX = d.geoX;
+                    d.targetY = d.geoY;
+                } else if (currentViewMode === "tile" || currentViewMode === "area-ratio") {
+                    d.targetX = d.gridX;
+                    d.targetY = d.gridY;
+                }
+            });
+
+            // Update force strengths
+            if (currentViewMode === "dorling") {
+                simulation
+                    .force("cx", d3.forceX(d => d.targetX).strength(0.2))
+                    .force("cy", d3.forceY(d => d.targetY).strength(0.2))
+                    .force("collide", d3.forceCollide(d => d.targetR + 2.5).iterations(4));
+            } else if (currentViewMode === "geo") {
+                simulation
+                    .force("cx", d3.forceX(d => d.targetX).strength(0.8))
+                    .force("cy", d3.forceY(d => d.targetY).strength(0.8))
+                    .force("collide", d3.forceCollide(d => d.targetR + 1).iterations(2));
+            } else {
+                // Tile grid fixed targets
+                simulation
+                    .force("cx", d3.forceX(d => d.targetX).strength(0.9))
+                    .force("cy", d3.forceY(d => d.targetY).strength(0.9))
+                    .force("collide", d3.forceCollide(d => d.targetR + 1).iterations(2));
+            }
+
+            simulation.alpha(0.6).restart();
+
+            // Transition SVG visuals
+            nodeElements.classed("opacity-20", d => !d.visible)
+                .classed("pointer-events-none", d => !d.visible);
+
+            nodeElements.select(".node-circle")
+                .transition().duration(400)
+                .attr("r", d => d.targetR)
+                .attr("fill", d => getNodeColor(d));
+
+            nodeElements.select(".node-glow")
+                .transition().duration(400)
+                .attr("r", d => d.targetR + 4)
+                .attr("stroke", d => getNodeColor(d));
+
+            nodeElements.select(".node-text-plate")
+                .transition().duration(400)
+                .attr("font-size", d => Math.max(9, Math.min(16, d.targetR * 0.45)) + "px");
+
+            nodeElements.select(".node-text-name")
+                .transition().duration(400)
+                .attr("font-size", d => Math.max(7, Math.min(11, d.targetR * 0.3)) + "px")
+                .text(d => d.targetR > 18 ? d.name : "");
+
+            updateLegend();
+        }
+
+        function updateLegend() {
+            const legendTitle = document.getElementById("legendTitle");
+            const legendLabels = document.getElementById("legendLabels");
+            const legendGradient = document.getElementById("legendGradient");
+
+            if (currentMetric === "population") {
+                legendTitle.children[0].innerText = "2025 Nüfus Ölçeği";
+                legendGradient.className = "h-2.5 rounded-full w-full bg-gradient-to-r from-indigo-950 via-indigo-500 to-rose-500";
+                legendLabels.innerHTML = "<span>82.8 Bin</span><span>2.5 Milyon</span><span>15.7 Milyon</span>";
+            } else if (currentMetric === "density") {
+                legendTitle.children[0].innerText = "Nüfus Yoğunluğu (Kişi/km²)";
+                legendGradient.className = "h-2.5 rounded-full w-full bg-gradient-to-r from-sky-600 via-amber-500 to-red-600";
+                legendLabels.innerHTML = "<span>11 (Tunceli)</span><span>111 (Ort)</span><span>2.948 (İst)</span>";
+            } else if (currentMetric === "region") {
+                legendTitle.children[0].innerText = "Coğrafi Bölgeler (7 Bölge)";
+                legendGradient.className = "h-2.5 rounded-full w-full bg-gradient-to-r from-indigo-500 via-emerald-500 to-rose-500";
+                legendLabels.innerHTML = "<span>Marmara</span><span>Karadeniz</span><span>Güneydoğu</span>";
+            } else if (currentMetric === "gender") {
+                legendTitle.children[0].innerText = "Cinsiyet Dengesi";
+                legendGradient.className = "h-2.5 rounded-full w-full bg-gradient-to-r from-rose-500 via-purple-500 to-sky-500";
+                legendLabels.innerHTML = "<span>Kadın Ağırlıklı</span><span>Dengeli</span><span>Erkek Ağırlıklı</span>";
+            }
+        }
+
+        // Tooltip interaction
+        function showTooltip(event, d) {
+            tooltip.style("opacity", "1");
+            tooltip.html(`
+                <div class="flex items-center gap-2 border-b border-slate-700/60 pb-1.5 mb-1.5">
+                    <span class="w-6 h-6 rounded bg-indigo-600 font-bold text-white font-mono flex items-center justify-center text-xs">${d.plate}</span>
+                    <div>
+                        <strong class="text-sm text-white">${d.name}</strong>
+                        <span class="text-[10px] text-indigo-300 block">${d.region}</span>
+                    </div>
+                </div>
+                <div class="space-y-1 text-[11px]">
+                    <div class="flex justify-between gap-4">
+                        <span class="text-slate-400">2025 Nüfusu:</span>
+                        <b class="text-white">${d.pop.toLocaleString('tr-TR')}</b>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-slate-400">Türkiye Payı:</span>
+                        <b class="text-indigo-400">%${d.share}</b>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-slate-400">Yoğunluk:</span>
+                        <b class="text-amber-400">${d.density} kişi/km²</b>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-slate-400">Nüfus Sırası:</span>
+                        <b class="text-emerald-400">#${d.rank} / 81</b>
+                    </div>
+                </div>
+            `);
+            moveTooltip(event);
+        }
+
+        function moveTooltip(event) {
+            const [x, y] = d3.pointer(event, document.body);
+            tooltip
+                .style("left", (x + 15) + "px")
+                .style("top", (y - 15) + "px");
+        }
+
+        function hideTooltip() {
+            tooltip.style("opacity", "0");
+        }
+
+        function selectProvince(d) {
+            selectedProvince = d;
+
+            document.getElementById("detailPlate").innerText = d.plate;
+            document.getElementById("detailName").innerText = d.name;
+            document.getElementById("detailRegion").innerText = d.region + " Bölgesi";
+            document.getElementById("detailRank").innerText = `Sıra #${d.rank}`;
+            document.getElementById("detailPop").innerText = d.pop.toLocaleString('tr-TR');
+            document.getElementById("detailShare").innerText = `Türkiye'nin %${d.share}'i`;
+            document.getElementById("detailDensity").innerText = `${d.density} / km²`;
+            document.getElementById("detailArea").innerText = `${d.area.toLocaleString('tr-TR')} km²`;
+            document.getElementById("detailAreaShare").innerText = `Türkiye'nin %${d.areaShare}'i`;
+
+            const maleVal = Math.round(d.pop * d.maleRatio);
+            const femaleVal = d.pop - maleVal;
+            const malePct = (d.maleRatio * 100).toFixed(1);
+            const femalePct = ((1 - d.maleRatio) * 100).toFixed(1);
+
+            document.getElementById("detailGenderRatio").innerText = `%${malePct} / %${femalePct}`;
+            document.getElementById("detailMaleCount").innerText = maleVal.toLocaleString('tr-TR');
+            document.getElementById("detailFemaleCount").innerText = femaleVal.toLocaleString('tr-TR');
+            document.getElementById("detailMaleBar").style.width = malePct + "%";
+            document.getElementById("detailFemaleBar").style.width = femalePct + "%";
+
+            // Generate contextual insight sentence
+            const areaVsPopMultiple = ((parseFloat(d.share) / parseFloat(d.areaShare))).toFixed(1);
+            let insightText = "";
+            if (d.plate === 34) {
+                insightText = "İstanbul, alan olarak Türkiye'nin yalnızca %0,68'ini kaplamasına rağmen nüfusun %18,3'üne ev sahipliği yapar. Kartogram haritasında fiziki boyutunun tam 27 katı büyüklükte temsil edilir!";
+            } else if (d.plate === 42) {
+                insightText = "Konya, Türkiye'nin en büyük yüzölçümüne (38.873 km²) sahip ili olmasına karşın, kartogram haritasında nüfusuna oranla İstanbul ve Ankara'dan daha küçük görünür.";
+            } else if (d.rank <= 5) {
+                insightText = `${d.name}, Türkiye'nin en yüksek nüfuslu ilk 5 ili arasındadır (%${d.share} pay). Sanayi, ticaret veya turizm aksında yer aldığı için nüfus çekmeye devam etmektedir.`;
+            } else {
+                insightText = `${d.name} ili, ${d.area.toLocaleString('tr-TR')} km² alanda ${d.pop.toLocaleString('tr-TR')} nüfusa sahiptir. Kartogram haritasında nüfusuyla orantılı daire alanı ${areaVsPopMultiple > 1.2 ? 'fiziksel haritadan daha belirgin' : 'dengeli'} bir alan kaplar.`;
+            }
+            document.getElementById("detailInsight").innerText = insightText;
+
+            // Highlight node in SVG
+            nodeElements.select(".node-circle")
+                .attr("stroke-width", n => n.plate === d.plate ? 3 : 1.5)
+                .attr("stroke", n => n.plate === d.plate ? "#ffffff" : "rgba(255,255,255,0.2)");
+        }
+
+        function renderRegionalList() {
+            const regions = {};
+            provincesData.forEach(p => {
+                if (!regions[p.region]) regions[p.region] = { totalPop: 0, count: 0 };
+                regions[p.region].totalPop += p.pop;
+                regions[p.region].count += 1;
+            });
+
+            const regionalContainer = document.getElementById("regionalList");
+            regionalContainer.innerHTML = Object.entries(regions)
+                .sort((a, b) => b[1].totalPop - a[1].totalPop)
+                .map(([regionName, data]) => {
+                    const share = ((data.totalPop / TURKEY_TOTAL_POP) * 100).toFixed(1);
+                    return `
+                        <div>
+                            <div class="flex justify-between text-[11px] mb-0.5">
+                                <span class="font-medium text-slate-200 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full" style="background-color: ${regionColors[regionName]}"></span>
+                                    ${regionName} (${data.count} İl)
+                                </span>
+                                <span class="font-mono text-slate-400">${(data.totalPop/1000000).toFixed(1)}M (%${share})</span>
+                            </div>
+                            <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                <div class="h-full rounded-full transition-all duration-500" style="width: ${share}%; background-color: ${regionColors[regionName]}"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+        }
+
+        // Render Filterable Table
+        let currentSort = { column: "rank", asc: true };
+
+        function renderTable() {
+            const tbody = document.getElementById("provinceTableBody");
+            
+            let filtered = provincesData.filter(d => {
+                const matchesRegion = (selectedRegion === "all" || d.region === selectedRegion);
+                const matchesSearch = (searchQuery === "" || 
+                    d.name.toLowerCase().includes(searchQuery) || 
+                    d.plate.toString() === searchQuery);
+                return matchesRegion && matchesSearch;
+            });
+
+            filtered.sort((a, b) => {
+                let valA = a[currentSort.column];
+                let valB = b[currentSort.column];
+                if (typeof valA === 'string') {
+                    return currentSort.asc ? valA.localeCompare(valB, 'tr') : valB.localeCompare(valA, 'tr');
+                }
+                return currentSort.asc ? valA - valB : valB - valA;
+            });
+
+            document.getElementById("tableCountBadge").innerText = `${filtered.length} İl Listeleniyor`;
+
+            tbody.innerHTML = filtered.map(d => `
+                <tr class="hover:bg-slate-800/50 transition cursor-pointer" onclick="handleTableClick(${d.plate})">
+                    <td class="p-3 font-mono font-bold text-indigo-400">#${d.rank}</td>
+                    <td class="p-3 font-mono text-slate-300">${d.plate.toString().padStart(2, '0')}</td>
+                    <td class="p-3 font-bold text-white flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full" style="background-color: ${regionColors[d.region]}"></span>
+                        ${d.name}
+                    </td>
+                    <td class="p-3 text-slate-400">${d.region}</td>
+                    <td class="p-3 text-right font-mono text-white font-bold">${d.pop.toLocaleString('tr-TR')}</td>
+                    <td class="p-3 text-right font-mono text-indigo-300">%${d.share}</td>
+                    <td class="p-3 text-right font-mono text-slate-400">${d.area.toLocaleString('tr-TR')}</td>
+                    <td class="p-3 text-right font-mono text-amber-400">${d.density}</td>
+                    <td class="p-3 text-center">
+                        <button class="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white rounded-lg transition" onclick="event.stopPropagation(); handleTableClick(${d.plate})">
+                            Haritada Göster
+                        </button>
+                    </td>
+                </tr>
+            `).join("");
+        }
+
+        window.handleTableClick = function(plate) {
+            const target = provincesData.find(p => p.plate === plate);
+            if (target) {
+                selectProvince(target);
+                // Scroll to top map smooth
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        };
+
+        function setupCompareModal() {
+            const modal = document.getElementById("compareModal");
+            const selectA = document.getElementById("compareSelectA");
+            const selectB = document.getElementById("compareSelectB");
+
+            const optionsHtml = provincesData
+                .sort((a,b) => a.name.localeCompare(b.name, 'tr'))
+                .map(p => `<option value="${p.plate}">${p.plate} - ${p.name}</option>`).join("");
+
+            selectA.innerHTML = optionsHtml;
+            selectB.innerHTML = optionsHtml;
+
+            selectA.value = "34"; // Istanbul
+            selectB.value = "6) Ankara"; // Default comparison
+            selectB.value = "42"; // Konya
+
+            function updateComparison() {
+                const provA = provincesData.find(p => p.plate == selectA.value);
+                const provB = provincesData.find(p => p.plate == selectB.value);
+
+                if (!provA || !provB) return;
+
+                const popRatio = (provA.pop / provB.pop).toFixed(1);
+                const areaRatio = (provA.area / provB.area).toFixed(1);
+                const densityRatio = (provA.density / provB.density).toFixed(1);
+
+                document.getElementById("compareResults").innerHTML = `
+                    <div class="grid grid-cols-2 gap-4 text-center font-bold text-sm text-white mb-2">
+                        <div class="p-3 bg-indigo-950/60 rounded-xl border border-indigo-500/30">
+                            <span class="text-xs text-indigo-400 font-mono block">PLAKA ${provA.plate}</span>
+                            ${provA.name}
+                        </div>
+                        <div class="p-3 bg-indigo-950/60 rounded-xl border border-indigo-500/30">
+                            <span class="text-xs text-indigo-400 font-mono block">PLAKA ${provB.plate}</span>
+                            ${provB.name}
+                        </div>
+                    </div>
+
+                    <!-- Pop Compare -->
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span><b>${provA.name}:</b> ${provA.pop.toLocaleString('tr-TR')}</span>
+                            <span class="font-semibold text-indigo-400">2025 Nüfusu</span>
+                            <span><b>${provB.name}:</b> ${provB.pop.toLocaleString('tr-TR')}</span>
+                        </div>
+                        <div class="h-3 rounded-full bg-slate-800 overflow-hidden flex">
+                            <div class="bg-indigo-500 h-full" style="width: ${(provA.pop / (provA.pop + provB.pop))*100}%"></div>
+                            <div class="bg-rose-500 h-full" style="width: ${(provB.pop / (provA.pop + provB.pop))*100}%"></div>
+                        </div>
+                        <div class="text-[11px] text-center text-slate-400 mt-1">
+                            ${provA.name}, ${provB.name} ilinden <b>${popRatio}x</b> kat daha kalabalıktır.
+                        </div>
+                    </div>
+
+                    <!-- Density Compare -->
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span><b>${provA.name}:</b> ${provA.density} kişi/km²</span>
+                            <span class="font-semibold text-amber-400">Nüfus Yoğunluğu</span>
+                            <span><b>${provB.name}:</b> ${provB.density} kişi/km²</span>
+                        </div>
+                        <div class="h-3 rounded-full bg-slate-800 overflow-hidden flex">
+                            <div class="bg-amber-500 h-full" style="width: ${(provA.density / (provA.density + provB.density))*100}%"></div>
+                            <div class="bg-emerald-500 h-full" style="width: ${(provB.density / (provA.density + provB.density))*100}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Area Compare -->
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between text-xs text-slate-400 mb-1">
+                            <span><b>${provA.name}:</b> ${provA.area.toLocaleString('tr-TR')} km²</span>
+                            <span class="font-semibold text-emerald-400">Fiziksel Yüzölçümü</span>
+                            <span><b>${provB.name}:</b> ${provB.area.toLocaleString('tr-TR')} km²</span>
+                        </div>
+                        <div class="h-3 rounded-full bg-slate-800 overflow-hidden flex">
+                            <div class="bg-sky-500 h-full" style="width: ${(provA.area / (provA.area + provB.area))*100}%"></div>
+                            <div class="bg-purple-500 h-full" style="width: ${(provB.area / (provA.area + provB.area))*100}%"></div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            selectA.addEventListener("change", updateComparison);
+            selectB.addEventListener("change", updateComparison);
+
+            document.getElementById("openCompareBtn").addEventListener("click", () => {
+                modal.classList.remove("hidden");
+                updateComparison();
+            });
+
+            document.getElementById("compareSelectedBtn").addEventListener("click", () => {
+                selectA.value = selectedProvince.plate.toString();
+                modal.classList.remove("hidden");
+                updateComparison();
+            });
+
+            document.getElementById("closeCompareModal").addEventListener("click", () => {
+                modal.classList.add("hidden");
+            });
+        }
+
+        function setupEventListeners() {
+            // View mode switch buttons
+            document.querySelectorAll(".view-btn").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    document.querySelectorAll(".view-btn").forEach(b => {
+                        b.classList.remove("active", "bg-indigo-600", "text-white", "shadow");
+                        b.classList.add("text-slate-400");
+                    });
+                    const targetBtn = e.currentTarget;
+                    targetBtn.classList.add("active", "bg-indigo-600", "text-white", "shadow");
+                    targetBtn.classList.remove("text-slate-400");
+
+                    currentViewMode = targetBtn.dataset.view;
+                    updateVisualization();
+                });
+            });
+
+            // Region filter change
+            document.getElementById("regionSelect").addEventListener("change", (e) => {
+                selectedRegion = e.target.value;
+                updateVisualization();
+                renderTable();
+            });
+
+            // Metric change
+            document.getElementById("metricSelect").addEventListener("change", (e) => {
+                currentMetric = e.target.value;
+                updateVisualization();
+            });
+
+            // Search bar input
+            document.getElementById("searchInput").addEventListener("input", (e) => {
+                searchQuery = e.target.value.toLowerCase().trim();
+                updateVisualization();
+                renderTable();
+            });
+
+            // Physics pause/toggle
+            document.getElementById("togglePhysicsBtn").addEventListener("click", function() {
+                if (isSimulationRunning) {
+                    simulation.stop();
+                    this.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i>`;
+                } else {
+                    simulation.alpha(0.3).restart();
+                    this.innerHTML = `<i data-lucide="pause" class="w-4 h-4"></i>`;
+                }
+                isSimulationRunning = !isSimulationRunning;
+                lucide.createIcons();
+            });
+
+            // Reset zoom
+            document.getElementById("resetZoomBtn").addEventListener("click", () => {
+                svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+            });
+
+            // Sort table headers
+            document.querySelectorAll("th[data-sort]").forEach(th => {
+                th.addEventListener("click", () => {
+                    const col = th.dataset.sort;
+                    if (currentSort.column === col) {
+                        currentSort.asc = !currentSort.asc;
+                    } else {
+                        currentSort.column = col;
+                        currentSort.asc = true;
+                    }
+                    renderTable();
+                });
+            });
+
+            // Export CSV
+            document.getElementById("exportCsvBtn").addEventListener("click", () => {
+                let csv = "Plaka,İl Adı,Bölge,2025 Nüfusu,Türkiye Payı (%),Yüzölçümü (km2),Nüfus Yoğunluğu (Kişi/km2)\n";
+                provincesData.forEach(p => {
+                    csv += `${p.plate},"${p.name}","${p.region}",${p.pop},${p.share},${p.area},${p.density}\n`;
+                });
+                
+                const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "turkiye_2025_nufus_verileri.csv";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
+
+            // Dark/Light theme toggle
+            document.getElementById("themeToggle").addEventListener("click", () => {
+                document.documentElement.classList.toggle("dark");
+            });
+        }
+
+        window.onload = function() {
+            lucide.createIcons();
+            selectProvince(selectedProvince);
+            renderRegionalList();
+            renderTable();
+            setupCompareModal();
+            setupEventListeners();
+            updateVisualization();
+        };
+
+    </script>
+</body>
+</html>
